@@ -1,0 +1,1309 @@
+---
+title: "Clasificación de perfiles de expresión génica mediante técnicas de Machine Learning"
+author: "María Alejandra Ardila-Jiménez, Luis Angelo Cruz, Luis Ignacio Figueroa Gómez"
+date: "2026-06-10"
+output: html_document 
+---
+<style>
+p {
+  text-align: justify;
+}
+</style>
+
+---
+
+
+### **Abstract**
+
+Los perfiles de expresión génica constituyen una fuente valiosa de información para la caracterización de muestras biológicas y la identificación de patrones moleculares asociados a distintas condiciones. En este estudio se analizaron datos transcriptómicos correspondientes a cinco clases biológicas mediante técnicas de aprendizaje automático supervisado y no supervisado. Tras una etapa de preprocesamiento y filtrado de variables, se aplicaron métodos de reducción de dimensionalidad (PCA y UMAP), agrupamiento (K-Means y clustering jerárquico) y clasificación supervisada (árbol de decisión, Random Forest y Gradient Boosting Machine). Los análisis no supervisados revelaron una clara estructura subyacente en los datos, mostrando una elevada concordancia con las clases biológicas originales. Los modelos supervisados alcanzaron altos niveles de rendimiento predictivo, destacando Random Forest con una exactitud del 99,37% y valores de sensibilidad, especificidad y AUC próximos a 1 para todas las clases. Además, se identificó un conjunto reducido de genes con elevada importancia relativa para el proceso de clasificación. En conjunto, los resultados evidencian que los perfiles de expresión génica contienen información suficiente para diferenciar con gran precisión las categorías biológicas analizadas y ponen de manifiesto el potencial de las técnicas de Machine Learning para el análisis de datos transcriptómicos.
+
+ *Keywords*: *Transcriptómica*; *Machine Learning*; *Clasificación biológica*
+
+---
+
+
+
+# **1. Introducción**
+
+La expresión génica constituye una de las principales fuentes de información para el estudio de procesos biológicos complejos y de distintas patologías humanas. El análisis simultáneo de cientos o miles de genes permite caracterizar patrones moleculares asociados a diferentes estados fisiológicos y enfermedades, aportando información valiosa para la investigación biomédica y la medicina de precisión.
+
+Los conjuntos de datos de expresión génica se caracterizan por presentar una elevada dimensionalidad, ya que cada muestra se describe mediante un gran número de variables correspondientes a genes individuales. Esta característica dificulta la interpretación directa de los datos y hace necesario el empleo de técnicas estadísticas y de métodos de aprendizaje automático (Machine Learning) capaces de extraer información relevante, identificar patrones ocultos y facilitar la comprensión de la estructura del conjunto de datos.
+
+En este contexto, las técnicas de aprendizaje no supervisado permiten explorar la organización interna de los datos sin utilizar información previa sobre las clases de las observaciones. Métodos como el Análisis de Componentes Principales (PCA) y Uniform Manifold Approximation and Projection (UMAP) facilitan la reducción de dimensionalidad y la visualización de los datos, mientras que técnicas de clusterización como K-Means y el clustering jerárquico permiten identificar agrupamientos naturales entre las muestras.
+
+Por otro lado, las técnicas de aprendizaje supervisado permiten construir modelos predictivos a partir de observaciones previamente etiquetadas. Entre los métodos más utilizados se encuentran árboles de decisión, Random Forest y algoritmos de Gradient Boosting Machine (GBM), los cuales han demostrado una elevada capacidad para la clasificación de datos biomédicos de alta dimensionalidad.
+
+El objetivo de este trabajo es analizar un conjunto de datos de expresión génica mediante técnicas de aprendizaje supervisado y no supervisado, con el fin de explorar su estructura, identificar posibles agrupamientos entre las muestras y evaluar la capacidad predictiva de distintos modelos de clasificación.
+
+
+---
+
+
+
+# **2. Métodos**
+
+### **2.1. Configuración del entorno de trabajo, establecimiento de la semilla e importación de librerías**
+
+Una vez realizada la limpieza del entorno con `(rm(list = ls()))`, se estableció el directorio de trabajo desde la interfaz de R, se comprobó el directorio de trabajo, se visualizaron los documentos encontrados en el directorio, y se estableció la semilla para obtener reproducibilidad de resultados.
+
+```{r preparación del entorno}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+rm(list = ls())
+getwd()
+list.files()
+set.seed(1988)
+```
+
+Para la implementación de las distintas etapas del análisis, incluyendo el preprocesamiento de datos, los métodos de aprendizaje no supervisado, los algoritmos de aprendizaje supervisado y la visualización de resultados, se utilizaron las siguientes librerías de R:
+
+```{r librerías}
+# manipulación de datos
+library(tidyverse)
+library(tidytext)
+
+# visualizaciones
+library(ggplot2)
+
+# presentación de resultados
+library(gt)
+library(tibble)
+
+
+# métodos de aprendizaje no supervisados: reducción de dimensionalidad y clusterización
+# PCA, K-means y clustering jerárquico
+library(stats)
+
+# UMAP
+library(uwot)
+
+# análisis general de clusters
+library(cluster)
+
+
+# métodos de aprendizaje supervisados
+# entrenamiento de métodos de aprendizaje supervisados
+library(caret)
+
+# árbol de decisiones
+library(rpart)
+library(rpart.plot)
+library(rattle)
+
+# random forest
+library(randomForest)
+
+# gradient boosting machine
+library(gbm)
+
+# comparación de modelos mediante curvas ROC
+library(pROC)
+```
+
+
+
+### **2.2. carga de archivo, control de calidad y creación del archivo único de trabajo**
+
+Una vez configurado el entorno de trabajo, se procedió a la carga de los tres archivos proporcionados para la actividad: la matriz de expresión génica (`gene_expression`), los nombres de los genes (`column_names`) y la información de clases de las muestras (`classes`). Posteriormente, se realizó una exploración inicial de cada conjunto de datos con el objetivo de verificar su estructura, dimensiones y contenido.
+
+```{r carga de archivo, control de calidad y creación del archivo único de trabajo, results='hide'}
+# importación de documento
+# matriz de expresión génica
+df <- read.csv("gene_expression.csv", sep = ";", header = FALSE)
+
+# nombres de genes
+nombre_columnas <- read.table("column_names.txt",  header = FALSE)
+
+# clases
+clases <- read.csv("classes.csv", sep = ";", header = FALSE)
+
+# exploración inicial de estructura de los datos
+str(df)
+str(nombre_columnas)
+str(clases)
+
+head(df)
+head(nombre_columnas)
+head(clases)
+
+tail(df)
+tail(nombre_columnas)
+tail(clases)
+
+# control de calidad
+sum(duplicated(df))
+sum(is.na(df))
+sum(duplicated(nombre_columnas))
+sum(is.na(nombre_columnas))
+sum(duplicated(clases))
+sum(is.na(clases))
+
+colSums(is.na(df))
+colSums(is.na(nombre_columnas))
+colSums(is.na(clases))
+
+dim(df)
+dim(nombre_columnas)
+dim(clases)
+
+# creación de dataframe (df) final
+colnames(df) <- nombre_columnas$V1
+rownames(df) <- clases$V1
+df$clases <- clases$V2
+dim(df)
+
+# control de calidad de df final
+str(df)
+summary(df)
+colSums(is.na(df))
+sum(duplicated(df))
+
+colnames(df)
+rownames(df)
+
+all(rownames(df) == clases$V1)
+
+# resumen descriptivo de 3 genes aleatorios
+summary(df$DUOXA1)
+summary(df$SMARCB1)
+summary(df$TTC31)
+table(df$clases)
+```
+
+Durante esta fase se comprobó que la matriz de expresión génica estaba compuesta por 801 muestras y 500 genes, mientras que el archivo de nombres de genes contenía 500 identificadores y el archivo de clases incluía los identificadores de las 801 muestras junto con su correspondiente clasificación biológica. Asimismo, se verificó la ausencia de registros duplicados y de valores faltantes en los tres archivos mediante las funciones de control de calidad realizadas. Dado que los nombres de los genes se encontraban en un archivo independiente, la matriz de expresión génica fue importada sin cabecera y posteriormente se asignaron los nombres de las variables a partir del archivo `column_names`.
+
+
+Una vez validada la consistencia de los datos, se construyó un único dataframe de trabajo, asignando los nombres de los genes a las columnas de la matriz de expresión génica, los identificadores de las muestras a los nombres de las filas y añadiendo la variable de clase como última columna del conjunto de datos. Además, se verificó la correspondencia exacta entre los identificadores de muestra y las observaciones de la matriz de expresión génica, para garantizar la correcta integración de los datos en el archivo de trabajo final.La ausencia de valores faltantes hizo innecesaria la aplicación de métodos de imputación de datos. 
+
+Adicionalmente, se realizó una exploración descriptiva de un conjunto reducido de genes seleccionados aleatoriamente (DUOXA1, MARCB1 y TTC31) y de la distribución de las clases biológicas presentes en el conjunto de datos (146 AGH, 300 CFB, 141 CGC, 136 CHC y 78 HPB) con el fin de verificar la correcta asignación de los nombres de las variables y comprobar la coherencia de los valores de expresión génica presentes en el dataframe final.
+
+Como resultado, se obtuvo un dataframe final compuesto por 801 muestras y 501 variables (500 expresiones génicas y una variable de clase). Este dataframe constituyó la base de trabajo utilizada en las posteriores etapas de análisis mediante técnicas de aprendizaje supervisado y no supervisado.
+
+
+
+#### **2.2.1 Preprocesamiento de los datos: filtrado y estandarización de las variables para el análisis mediante métodos de aprendizaje no supervisados y clusterización**
+
+Antes de aplicar las técnicas de reducción de dimensionalidad y clusterización, se generó un nuevo dataframe excluyendo la variable de clase, ya que esta información no debe intervenir en los métodos de aprendizaje no supervisado.
+
+Posteriormente, se evaluó la variabilidad de las expresiones génicas con el objetivo de identificar posibles variables constantes o sin capacidad discriminativa. Las variables que presentaran varianza nula serían eliminadas del conjunto de datos antes de continuar con el análisis, dado que no aportan información útil para los procedimientos de reducción de dimensionalidad ni para los algoritmos de agrupamiento.
+
+Una vez realizado este filtrado, se procedió a la estandarización de las expresiones génicas mediante la función `scale()`. Este procedimiento transforma cada variable para que presente media cero y desviación estándar uno, permitiendo que todos los genes contribuyan de forma comparable al análisis. La estandarización se llevó a cabo debido a que métodos como PCA, UMAP, K-Means y clustering jerárquico son sensibles a las diferencias de escala entre variables. De este modo, se evita que genes con rangos de expresión más elevados ejerzan una influencia desproporcionada sobre el cálculo de distancias y varianzas, favoreciendo una representación más equilibrada de la información contenida en los datos.
+
+```{r estandarización de los datos, results='hide'}
+# eliminación de columna clase de df final 
+df_sin_clases <- dplyr::select(df, -clases)
+
+# detectar genes constantes
+genes_constantes <- names(which(apply(df_sin_clases, 2, sd) == 0))
+genes_constantes
+length(genes_constantes)
+
+# eliminar genes constantes
+df_filtrado <- df_sin_clases[, apply(df_sin_clases, 2, sd) > 0]
+
+names(df_filtrado)
+dim(df_filtrado)
+
+# estandarización de datos
+datos_escalados <- scale(df_filtrado)
+
+# control de calidad de datos estandarizados
+sum(is.na(datos_escalados))
+
+head(datos_escalados)
+str(datos_escalados)
+
+rownames(datos_escalados)
+colnames(datos_escalados)
+
+```
+
+La evaluación de la variabilidad de las expresiones génicas permitió identificar tres genes con varianza nula (MIER3, ZCCHC12 y RPL22L1), cuyos valores permanecían constantes en las 801 muestras analizadas. Dado que estas variables no aportaban información discriminativa, e impiden el análisis, fueron eliminadas antes de la estandarización.
+
+Tras este filtrado, el conjunto de datos pasó de 500 a 497 variables de expresión génica. La posterior estandarización se realizó correctamente, sin generar valores faltantes, obteniéndose una matriz de datos escalada compuesta por 801 muestras y 497 genes, que fue utilizada en las etapas posteriores de reducción de dimensionalidad y clusterización.
+
+
+### **2.3. Selección de métodos de análisis**
+
+Una vez preparado y preprocesado el conjunto de datos, se seleccionaron distintos métodos de aprendizaje automático con el objetivo de explorar la estructura de los datos, identificar posibles agrupamientos entre las muestras y construir modelos capaces de predecir la clase biológica asociada a cada observación.
+
+Para el análisis no supervisado se emplearon técnicas de reducción de dimensionalidad y de clusterización. Concretamente, se seleccionaron el Análisis de Componentes Principales (PCA) y Uniform Manifold Approximation and Projection (UMAP) para obtener representaciones de baja dimensionalidad de los datos, así como K-Means y clustering jerárquico para la identificación de agrupamientos entre las muestras. Estos métodos fueron escogidos por su amplio uso en el análisis de datos de alta dimensionalidad y por permitir estudiar tanto la estructura global como las relaciones locales presentes en los datos.
+
+Por otro lado, para el análisis supervisado se utilizaron árboles de decisión, Random Forest y Gradient Boosting Machine (GBM). Estos algoritmos representan diferentes niveles de complejidad dentro de los modelos basados en árboles y permiten comparar enfoques simples e interpretables con métodos de ensamblado capaces de mejorar el rendimiento predictivo.
+
+La combinación de técnicas supervisadas y no supervisadas permite abordar el conjunto de datos desde perspectivas complementarias. Mientras que los métodos no supervisados facilitan la exploración de patrones y agrupamientos sin utilizar información previa sobre las clases, los métodos supervisados permiten evaluar la capacidad de clasificación de los perfiles de expresión génica y determinar qué algoritmos ofrecen un mejor rendimiento predictivo.
+
+
+#### **2.3.1 Funciones y parámetros**
+
+Las técnicas seleccionadas se implementaron mediante funciones específicas disponibles en R. A continuación, se describen las funciones empleadas y los principales parámetros utilizados en cada caso.
+
+
+##### **2.3.1.1. Métodos de aprendizaje no supervisado**
+
+
+##### **2.3.1.1.1 Reducción de dimensionalidad**
+
+**Análisis de Componentes Principales (PCA)** (`prcomp()`): se utilizó para obtener una representación lineal de los datos en un espacio de menor dimensionalidad. La función se aplicó sobre los datos previamente estandarizados, utilizando los argumentos `center = TRUE` y `scale. = FALSE`, ya que el escalado había sido realizado previamente mediante la función `scale()`. PCA permite identificar las direcciones de máxima variabilidad presentes en el conjunto de datos y facilitar su visualización e interpretación.
+
+**Uniform Manifold Approximation and Projection (UMAP)** (`umap()`): se empleó para obtener una representación no lineal de los datos, preservando tanto relaciones locales como parte de la estructura global. Entre los parámetros más relevantes se encuentran `n_neighbors`, que controla el tamaño del vecindario utilizado para construir la representación, y `min_dist`, que regula la proximidad mínima entre observaciones en el espacio proyectado. Este método resulta especialmente útil para la visualización de datos de alta dimensionalidad.
+
+
+##### **2.3.1.1.2. Métodos de clusterización**
+
+**K-Means** (`kmeans()`): se utilizó para identificar agrupamientos entre las muestras a partir de los datos estandarizados. El parámetro `centers` define el número de clústeres a generar, mientras que `nstart` controla el número de inicializaciones aleatorias utilizadas para evitar soluciones subóptimas. Este algoritmo asigna cada observación al clúster cuyo centroide se encuentra más próximo.
+
+**Clustering jerárquico** (`hclust()`): se aplicó sobre una matriz de distancias calculada mediante `dist()`. El método de enlace utilizado fue `ward.D2`, ampliamente empleado por su capacidad para generar agrupamientos compactos y relativamente homogéneos. El resultado se representó mediante un dendrograma que permitió visualizar las relaciones de similitud entre las muestras.
+
+
+##### **2.3.1.2. Métodos de aprendizaje no supervisado**
+
+
+##### **2.3.1.2.1 Consideraciones y parámetros en métodos de aprendizaje supervisado**
+
+**Árbol de decisión** (`rpart()`): se empleó para construir modelos de clasificación basados en reglas de decisión obtenidas a partir de las variables predictoras. Este método destaca por su facilidad de interpretación y permite identificar las variables más relevantes para la clasificación de las muestras.
+
+**Random Forest** (`randomForest()`): se utilizó como método de ensamblado basado en múltiples árboles de decisión. El parámetro `ntree` determina el número de árboles generados, mientras que `mtry` controla el número de variables evaluadas en cada partición. Este enfoque suele mejorar la capacidad predictiva y reducir el riesgo de sobreajuste respecto a un árbol individual.
+
+**Gradient Boosting Machine (GBM)** (`gbm()`): se empleó para construir un modelo de ensamblado secuencial en el que cada árbol corrige progresivamente los errores cometidos por los anteriores. Entre los parámetros más relevantes se encuentran `n.trees`, que determina el número de árboles generados, `interaction.depth`, que controla la profundidad máxima de cada árbol, y `shrinkage`, que regula la velocidad de aprendizaje del algoritmo.
+
+
+##### **2.3.1.2.2 Partición de entrenamiento y prueba de métodos de aprendizaje supervisado**
+
+Antes del entrenamiento de los modelos supervisados, la variable de clasificación fue convertida al tipo factor mediante la función `as.factor()`. Posteriormente, los datos se dividieron en dos subconjuntos: entrenamiento (80%) y prueba (20%).
+
+El conjunto de entrenamiento se utilizó para ajustar los modelos de clasificación, mientras que el conjunto de prueba se reservó exclusivamente para evaluar su capacidad de generalización sobre observaciones no utilizadas durante el proceso de aprendizaje.
+
+Para ello, se empleó la función `createDataPartition()` de la librería `caret`, aplicando una partición estratificada sobre la variable de clasificación (`clases`). Este procedimiento permitió mantener proporciones similares de las distintas clases biológicas en ambos subconjuntos, garantizando que tanto el entrenamiento como la evaluación de los modelos se realizaran sobre muestras representativas de la distribución original de los datos.
+
+```{r partición de entrenamiento/prueba}
+# dataframe para modelos supervisados
+datos_supervisados <- data.frame(
+  df_filtrado,
+  clases = df$clases
+)
+
+# conversión de la variable de clase a factor
+datos_supervisados$clases <- as.factor(datos_supervisados$clases)
+
+# partición estratificada entrenamiento/prueba
+trainIndex <- createDataPartition(
+  datos_supervisados$clases,
+  p = 0.8,
+  list = FALSE
+)
+
+# conjunto de entrenamiento
+trainData <- datos_supervisados[trainIndex, ]
+
+# conjunto de prueba
+testData <- datos_supervisados[-trainIndex, ]
+
+# comprobación de proporciones
+prop.table(table(datos_supervisados$clases))
+prop.table(table(trainData$clases))
+prop.table(table(testData$clases))
+```
+
+
+La correcta estratificación de la partición fue verificada mediante la comparación de las proporciones de cada clase en el conjunto completo de datos y en los subconjuntos de entrenamiento y prueba. Los resultados mostraron distribuciones prácticamente idénticas entre los tres conjuntos, confirmando que la partición preservó adecuadamente la estructura original de las clases.
+
+
+##### **2.3.1.2.3 Validación de los métodos de aprendizaje supervisado**
+
+Con el fin de obtener estimaciones más robustas del rendimiento de los modelos y reducir la dependencia de una única partición de los datos, se empleó `10-fold cross-validation` durante el entrenamiento de los algoritmos supervisados. Para ello, se utilizó la función `trainControl()` de la librería `caret`, configurando la estimación de probabilidades de clase mediante el argumento `classProbs = TRUE`. Este procedimiento permitió evaluar los modelos sobre diferentes subconjuntos de entrenamiento y facilitó el cálculo posterior de métricas de clasificación y curvas ROC.
+
+``` {r validación cruzada}
+# definimos el control de entrenamiento
+dt_ctrl <- trainControl(
+  method = "cv",
+  number = 10,
+  classProbs = TRUE
+)
+```
+
+
+---
+
+
+
+# **3. Resultados**
+
+### **3.1. Algoritmos de aprendizaje no supervisados**
+
+#### **3.1.1. Reducción de dimensionalidad**
+
+##### **3.1.1.1. Análisis de Componentes Principales**
+
+Con el objetivo de explorar la estructura global del conjunto de datos de expresión génica, se aplicó un PCA mediante la función `prcomp()`. Este método permite reducir la dimensionalidad de los datos transformando las variables originales en un conjunto de componentes ortogonales que concentran la mayor parte de la variabilidad observada.
+
+El análisis se realizó sobre el conjunto de datos previamente filtrado y estandarizado. Posteriormente, se calculó la proporción de varianza explicada por cada componente principal y se generaron las etiquetas de los ejes en función del porcentaje de varianza explicado por las dos primeras componentes. Finalmente, se representaron gráficamente las muestras en el plano definido por PC1 y PC2, coloreadas según su clase biológica (**Figura 1**). Las dos primeras componentes principales se seleccionaron con el fin de facilitar la visualización de los datos en un espacio bidimensional.
+
+```{r PCA, fig.width=5, fig.height=5, fig.align="center"}
+# cálculo de componentes principales
+pca.results <- prcomp(datos_escalados, center = TRUE, scale. = FALSE)
+
+# coordenadas de las muestras en el nuevo espacio
+pca.df <- data.frame(pca.results$x)
+
+# añadir clase biológica
+pca.df$clases <- df$clases
+
+# cálculo de varianza explicada
+varianzas <- pca.results$sdev^2
+total.varianza <- sum(varianzas)
+varianza.explicada <- varianzas / total.varianza
+
+# etiquetas de ejes
+x_label <- paste0("Componente principal 1 (", round(varianza.explicada[1] * 100, 2), "%)")
+y_label <- paste0("Componente principal 2 (", round(varianza.explicada[2] * 100, 2), "%)")
+
+# representación gráfica de la proyección PCA
+pca_graph <- ggplot(pca.df, aes(x = PC1, y = PC2, color = clases)) +
+  geom_point(size = 3) +
+  labs(
+    title = "Proyección de muestras mediante PCA",
+    x = x_label,
+    y = y_label,
+    color = "Clase"
+  ) +
+  theme_classic() +
+  theme(
+    panel.grid.major = element_line(color = "gray90"),
+    panel.grid.minor = element_blank(),
+    panel.background = element_rect(fill = "gray95"),
+    plot.title = element_text(hjust = 0.5)
+  )
+
+plot(pca_graph)
+```
+
+**Figura 1.** Proyección de las muestras mediante PCA. Cada punto representa una muestra de expresión génica y el color indica su clase biológica. Los ejes muestran las dos primeras componentes principales y el porcentaje de varianza explicado por cada una de ellas.
+
+
+
+
+El análisis mediante PCA permitió explorar la estructura global del conjunto de datos de expresión génica y visualizar la distribución de las muestras en función de las dos componentes principales que concentran la mayor proporción de variabilidad.
+
+Las dos primeras componentes principales explicaron conjuntamente un 21,82% de la variabilidad total de los datos (12,39% para PC1 y 9,43% para PC2). Este resultado indica que la variabilidad del conjunto de datos se encuentra distribuida entre múltiples dimensiones, una característica habitual en datos transcriptómicos de alta dimensionalidad.
+
+En la representación obtenida (**Figura 1**), se observa que las muestras pertenecientes a la clase AGH forman un agrupamiento relativamente diferenciado respecto al resto de grupos, especialmente a lo largo de la segunda componente principal. Este comportamiento sugiere la existencia de patrones de expresión génica característicos asociados a dicha clase.
+
+Por el contrario, las clases CFB, CGC y CHC presentan un importante grado de solapamiento en el espacio definido por las dos primeras componentes principales, lo que indica la existencia de similitudes en sus perfiles de expresión génica o una elevada variabilidad interna dentro de cada grupo. La clase HPB muestra una agrupación relativamente compacta, aunque también presenta un imporntante solapamiento con las otras clases.
+
+Desde el punto de vista metodológico, estos resultados sugieren que PCA es capaz de capturar parte de la estructura global presente en los datos e identificar tendencias generales de agrupamiento. Sin embargo, la existencia de regiones con un elevado solapamiento entre clases indica que las relaciones presentes en los datos podrían ser más complejas que las capturadas por una transformación lineal. Por este motivo, resulta pertinente complementar el análisis mediante métodos no lineales como UMAP.
+
+Un análisis complementario de la varianza explicada por las componentes principales puede consultarse en el **Anexo 1**.
+
+
+##### **3.1.1.2. Uniform Manifold Approximation and Projection**
+Con el objetivo de complementar el análisis realizado mediante PCA, se aplicó UMAP, un método no lineal de reducción de dimensionalidad. A diferencia de PCA, que genera componentes principales a partir de combinaciones lineales de las variables originales, UMAP permite representar relaciones más complejas entre las muestras, preservando principalmente la estructura local de los datos.
+
+El análisis se realizó sobre el conjunto de datos previamente filtrado y estandarizado. Para ello, se utilizó la función `umap()` del paquete `uwot`, para generar una proyección bidimensional de las muestras. Se emplearon los parámetros `n_neighbors = 30`, que controla el número de vecinos considerados para construir la estructura local de los datos, `n_components = 2`, que define la representación en dos dimensiones, y `min_dist = 0.1`, que regula la proximidad mínima entre puntos en el espacio reducido. Finalmente, las muestras se representaron gráficamente en el plano definido por UMAP 1 y UMAP 2, coloreadas según su clase biológica (**Figura 2**).
+
+```{r umap_plot, fig.width=5, fig.height=5, fig.align="center"}
+# plicación del algoritmo UMAP para reducción de dimensionalidad
+umap.results <- uwot::umap(
+  datos_escalados,
+  n_neighbors = 30,
+  n_components = 2,
+  min_dist = 0.1
+)
+
+# coordenadas en el espacio reducido
+umap.df <- data.frame(
+  UMAP1 = umap.results[, 1],
+  UMAP2 = umap.results[, 2]
+)
+
+# añadir clase biológica
+umap.df$clases <- df$clases
+
+# representación gráfica de la proyección UMAP
+umap_graph <- ggplot(umap.df, aes(x = UMAP1, y = UMAP2, color = clases)) +
+  geom_point(size = 3) +
+  labs(
+    title = "Proyección de muestras mediante UMAP\n(n_neighbors = 30)",
+    x = "UMAP 1",
+    y = "UMAP 2",
+    color = "Clase"
+  ) +
+  theme_classic() +
+  theme(
+    panel.grid.major = element_line(color = "gray90"),
+    panel.grid.minor = element_blank(),
+    panel.background = element_rect(fill = "gray95"),
+    plot.title = element_text(hjust = 0.5)
+  )
+
+plot(umap_graph)
+
+                     
+```                 
+
+**Figura 2.** Proyección de las muestras mediante UMAP. Cada punto representa una muestra de expresión génica y el color indica su clase biológica. Los ejes muestran las dos dimensiones generadas por el algoritmo UMAP.
+
+
+
+
+La representación obtenida mediante UMAP mostró una separación clara entre las clases biológicas analizadas. A diferencia de lo observado en el análisis mediante PCA, donde varias clases presentaban un grado importante de solapamiento, UMAP permitió visualizar agrupamientos más compactos y diferenciados entre las muestras.
+
+En la **Figura 2** se observa que las muestras pertenecientes a la clase AGH forman un grupo claramente separado del resto, situado en una región aislada del espacio reducido. De forma similar, las clases HPB y CHC presentan agrupamientos compactos y bien diferenciados, lo que sugiere la existencia de perfiles de expresión génica característicos asociados a estas clases.
+
+Las clases CFB y CGC también muestran agrupamientos reconocibles, aunque se localizan en regiones más próximas entre sí que respecto al resto de clases. Esta cercanía podría indicar una mayor similitud relativa en sus perfiles transcriptómicos, aunque ambas clases mantienen una separación visual apreciable en la proyección obtenida.
+
+Desde el punto de vista metodológico, estos resultados indican que UMAP capturó estructuras no lineales presentes en los datos que no fueron evidentes mediante PCA. La clara organización de las muestras en agrupamientos compatibles con las clases biológicas sugiere que los perfiles de expresión génica contienen información suficiente para diferenciar los grupos analizados. En comparación con PCA, UMAP proporcionó una separación más nítida entre las clases y facilitó la identificación visual de agrupamientos bien definidos. Por tanto, este método resultó especialmente útil como herramienta exploratoria para visualizar la estructura interna del conjunto de datos.
+
+Un análisis complementario de la estabilidad de las proyecciones obtenidas mediante UMAP puede consultarse en el **Anexo 2**.
+
+
+#### **3.1.2. Métodos de clusterización**
+
+##### **3.1.2.1 K-means**
+
+Con el objetivo de identificar agrupamientos naturales entre las muestras de expresión génica, se aplicó el algoritmo de clusterización no jerárquica K-Means mediante la función `kmeans()`. Este método particiona las observaciones en un número predefinido de clústeres, asignando cada muestra al grupo cuyo centroide se encuentra más próximo y minimizando la variabilidad interna de cada agrupamiento.
+
+El análisis se realizó sobre el conjunto de datos previamente filtrado y estandarizado. Considerando la existencia de cinco clases biológicas en el conjunto de datos, el algoritmo se ejecutó utilizando `centers = 5`. Además, se estableció `nstart = 25` con el fin de realizar múltiples inicializaciones aleatorias y reducir la probabilidad de obtener soluciones subóptimas. Posteriormente, se examinó la distribución de las muestras entre los distintos clústeres y se comparó la asignación obtenida con las clases biológicas reales. Finalmente, los clústeres identificados se representaron gráficamente sobre la proyección UMAP previamente obtenida (**Figura 3**).
+
+```{r K-means, fig.width=5, fig.height=5, fig.align="center"}  
+# aplicación de K-Means con 5 clústeres
+km <- kmeans(
+  datos_escalados,
+  centers = 5,
+  nstart = 25
+)
+
+# distribución de muestras por clúster
+table(km$cluster)
+
+# comparación entre clústeres y clases biológicas reales
+table(km$cluster, df$clases)
+
+# dataframe para visualización
+kmeans.df <- data.frame(
+  UMAP1 = umap.df$UMAP1,
+  UMAP2 = umap.df$UMAP2,
+  Cluster = as.factor(km$cluster)
+)
+
+# representación gráfica
+ggplot(kmeans.df, aes(x = UMAP1, y = UMAP2, color = Cluster)) +
+  geom_point(size = 3) +
+  labs(
+    title = "Clustering no jerárquico mediante K-Means",
+    x = "UMAP 1",
+    y = "UMAP 2",
+    color = "Clúster"
+  ) +
+  theme_classic() +
+  theme(
+    panel.grid.major = element_line(color = "gray90"),
+    panel.grid.minor = element_blank(),
+    panel.background = element_rect(fill = "gray95"),
+    plot.title = element_text(hjust = 0.5)
+)
+
+```   
+
+**Figura 3.** Agrupamientos identificados mediante K-Means proyectados sobre el espacio bidimensional generado por UMAP. Cada punto representa una muestra de expresión génica y el color indica el clúster asignado por el algoritmo.
+
+
+
+
+Los resultados sugieren que K-Means fue capaz de identificar agrupamientos bien definidos en el conjunto de datos. La representación gráfica (**Figura 3**) revela la existencia de cinco clústeres claramente diferenciados, lo que indica la presencia de una estructura interna consistente en los perfiles de expresión génica analizados.
+
+La comparación entre los clústeres obtenidos y las clases biológicas reales mostró una elevada concordancia para varias de las categorías estudiadas. En particular, de acuerdo a la tabla generada por `table(km$cluster, df$clases)`, las clases AGH, CHC y HPB fueron recuperadas casi perfectamente por el algoritmo, generando agrupamientos compactos y claramente separados del resto de las muestras. Por otro lado, la principal fuente de discrepancia se observó entre las clases CFB y CGC. Aunque ambas categorías fueron agrupadas mayoritariamente en clústeres diferentes, se detectó un grado relevante de mezcla entre ellas. Este comportamiento resulta consistente con los resultados observados previamente mediante UMAP, donde ambas clases aparecían espacialmente más próximas entre sí que respecto al resto de grupos.
+
+Desde el punto de vista metodológico, estos resultados sugieren que los patrones identificados por K-Means reflejan diferencias biológicas reales presentes en los perfiles de expresión génica. La elevada correspondencia observada entre los clústeres obtenidos de forma no supervisada y las clases biológicas conocidas indica que el conjunto de datos presenta una estructura de agrupamiento bien definida, especialmente para las clases AGH, CHC y HPB. En conjunto, K-Means permitió confirmar cuantitativamente los patrones de agrupamiento previamente observados mediante PCA y, especialmente, mediante UMAP.
+
+
+
+##### **3.1.2.2 Clustering jerárquico**
+
+Con el objetivo de identificar agrupamientos entre las muestras sin utilizar información previa sobre sus clases biológicas, se aplicó un método de clustering jerárquico mediante la función `hclust()`. A diferencia de K-Means, este enfoque no parte de una partición inicial de los datos, sino que construye una estructura jerárquica de agrupamientos basada en las distancias existentes entre las observaciones.
+
+El análisis se realizó sobre el conjunto de datos previamente filtrado y estandarizado. En primer lugar, se calculó una matriz de distancias euclídeas mediante la función `dist()`. Posteriormente, se aplicó el algoritmo de agrupamiento jerárquico utilizando el método de enlace `ward.D2`, seleccionado por su capacidad para generar clústeres compactos y relativamente homogéneos. Finalmente, el dendrograma obtenido se dividió en cinco grupos mediante la función `cutree()`, con el fin de facilitar la comparación con las cinco clases biológicas presentes en el conjunto de datos. Los agrupamientos identificados se representaron gráficamente sobre la proyección UMAP previamente obtenida (**Figura 4**).
+
+
+```{r Clustering jerárquico, fig.width=5, fig.height=5, fig.align="center"} 
+# calcular matriz de distancias euclídeas
+dist_matrix <- dist(datos_escalados, method = "euclidean")
+
+# aplicar clustering jerárquico con método Ward
+hc_ward <- hclust(dist_matrix, method = "ward.D2")
+
+# graficar dendrograma
+plot(
+  hc_ward,
+  labels = FALSE,
+  main = "Dendrograma de clustering jerárquico (Ward)",
+  xlab = "Muestras",
+  ylab = "Distancia"
+)
+
+# cortar el dendrograma en 5 grupos
+clusters_hc <- cutree(hc_ward, k = 5)
+
+# distribución de muestras por clúster
+table(clusters_hc)
+
+# comparación con las clases reales
+table(clusters_hc, df$clases)
+
+
+# dataframe para visualización
+hc.df <- data.frame(
+  UMAP1 = umap.df$UMAP1,
+  UMAP2 = umap.df$UMAP2,
+  Cluster = as.factor(clusters_hc)
+)
+
+# representación gráfica del clustering jerárquico sobre UMAP
+ggplot(hc.df, aes(x = UMAP1, y = UMAP2, color = Cluster)) +
+  geom_point(size = 3) +
+  labs(
+    title = "Clustering jerárquico mediante método Ward",
+    x = "UMAP 1",
+    y = "UMAP 2",
+    color = "Clúster"
+  ) +
+  theme_classic() +
+  theme(
+    panel.grid.major = element_line(color = "gray90"),
+    panel.grid.minor = element_blank(),
+    panel.background = element_rect(fill = "gray95"),
+    plot.title = element_text(hjust = 0.5)
+)
+```   
+
+**Figura 4.** Agrupamientos identificados mediante clustering jerárquico utilizando el método de enlace Ward (`ward.D2`), representados sobre la proyección bidimensional obtenida mediante UMAP. Cada punto representa una muestra de expresión génica y el color indica el clúster asignado por el algoritmo.
+
+
+
+
+El clustering jerárquico permitió identificar una estructura de agrupamiento consistente con la observada previamente con UMAP y K-Means. La representación gráfica (**Figura 4**) muestra la existencia de cinco agrupamientos principales, varios de los cuales presentan una elevada correspondencia con las clases biológicas reales.
+
+La comparación entre los clústeres obtenidos y las clases conocidas mostró que las clases AGH y HPB fueron recuperadas prácticamente en su totalidad por el algoritmo, generando agrupamientos compactos y claramente diferenciados del resto de las muestras. Asimismo, la clase CHC se agrupó de manera muy consistente, observándose únicamente un número reducido de muestras asignadas a otros grupos.
+
+Al igual que ocurrió con K-Means, la principal fuente de mezcla se observó entre las clases CFB y CGC. Aunque ambas categorías fueron agrupadas mayoritariamente en clústeres diferenciados, una parte de sus muestras apareció compartiendo agrupamientos, lo que sugiere la existencia de similitudes en sus perfiles de expresión génica. Este comportamiento resulta coherente con los resultados observados previamente mediante PCA, UMAP y K-Means.
+
+Desde el punto de vista metodológico, los resultados sugieren que el clustering jerárquico fue capaz de recuperar gran parte de la estructura biológica presente en los datos sin utilizar información previa sobre las clases. La elevada concordancia observada para varias de las categorías analizadas confirma la existencia de patrones de expresión génica suficientemente diferenciados entre grupos. En conjunto, los resultados del clustering jerárquico refuerzan las conclusiones de K-Means y aportan evidencia adicional sobre la presencia de agrupamientos naturales en el conjunto de datos de expresión génica.
+
+
+### **3.2. Algoritmos de aprendizaje supervisado**
+
+Antes de aplicar los algoritmos de aprendizaje supervisado, se examinó la distribución de las clases presentes en el conjunto de datos. Se observó que la distribución no era completamente homogénea, con una mayor representación de la clase CFB (300 muestras) y una menor representación de la clase HPB (78 muestras), de acuerdo con lo observado mediante el comando `table(df$clases)`. Aunque este nivel de desbalance no puede considerarse extremo, constituye un aspecto a tener en cuenta en la interpretación de los resultados obtenidos mediante los algoritmos de clasificación, ya que las clases más numerosas pueden verse favorecidas durante el proceso de entrenamiento y evaluación de los modelos.
+
+Por otra parte, los modelos supervisados se entrenaron utilizando el conjunto de datos `datos_supervisados`, que deriva del objeto `df_filtrado` construido durante la etapa de preprocesamiento. En consecuencia, los tres genes constantes identificados inicialmente (MIER3, ZCCHC12 y RPL22L1) fueron excluidos del análisis, quedando un total de 497 variables predictoras. 
+
+Durante el entrenamiento de los modelos se aplicó un preprocesamiento  mediante el argumento `preProcess = c("center", "scale")` de la función `train()` de la librería `caret`. Este procedimiento centró y escaló las variables predictoras dentro del flujo de entrenamiento, transformándolas para que presentaran media cero y desviación estándar uno. Aunque los modelos basados en árboles no requieren estrictamente estandarización para funcionar correctamente, se decidió aplicar este procesamiento de forma homogénea en todos los algoritmos supervisados con el fin de mantener un procedimiento común de entrenamiento y facilitar la comparación entre modelos.
+
+Asimismo, se consideró la posibilidad de aplicar técnicas de reducción de dimensionalidad antes de la clasificación. Sin embargo, se decidió no incorporar este paso debido a que el conjunto de datos resultante tras el filtrado contenía un número de variables razonable para los algoritmos seleccionados. Además, la reducción de dimensionalidad podría implicar una pérdida de información potencialmente relevante para la clasificación, mientras que algoritmos como Random Forest y GBM son capaces de manejar adecuadamente conjuntos de datos con un número elevado de predictores durante su proceso de aprendizaje.
+
+Todos los algoritmos de aprendizaje supervisado descritos previamente se aplicaron sobre el conjunto de `datos datos_supervisados`, preparado y validado según el procedimiento descrito en la sección correspondiente de Metodología.
+
+
+
+
+#### **3.2.1. Árbol de desiciones**
+
+Con el objetivo de construir un modelo capaz de clasificar las muestras según su clase biológica a partir de sus perfiles de expresión génica, se aplicó un árbol de decisión mediante la función `train()` de la librería `caret`, utilizando el algoritmo `rpart`. Este método genera una estructura jerárquica de reglas de decisión basada en particiones sucesivas de las variables predictoras, permitiendo clasificar las observaciones de forma interpretable.
+
+Una vez entrenado el modelo, se realizaron predicciones sobre el conjunto de prueba y su rendimiento se evaluó mediante una matriz de confusión. Finalmente, se representó gráficamente la estructura del árbol obtenido con el fin de identificar las variables utilizadas en las distintas reglas de clasificación (**Figura 5**).
+
+```   {r árbol de decisiones, fig.width=14, fig.height=10, dpi=300}
+# entrenamiento del árbol de decisión
+dtModel <- train(
+  clases ~ .,
+  data = trainData,
+  method = "rpart",
+  trControl = dt_ctrl,
+  preProcess = c("center", "scale"),
+  tuneLength = 10
+)
+
+# predicción de clases en el conjunto de prueba
+predictions_dt <- predict(
+  dtModel,
+  newdata = testData,
+  type = "raw"
+)
+
+# evaluación del rendimiento mediante matriz de confusión
+confusionMatrix(
+  predictions_dt,
+  testData$clases
+)
+
+# representación gráfica del árbol final ajustado
+fancyRpartPlot(
+  dtModel$finalModel,
+  type = 4,
+  tweak = 1,
+  cex = 0.8,
+  under.cex = 0.8,
+)
+
+# creación de objeto con datos de matriz de confusión
+cm_dt <- confusionMatrix(predictions_dt, testData$clases)
+```   
+
+**Figura 5**. Árbol de decisión obtenido para la clasificación de las muestras según su clase biológica. Cada nodo muestra la clase predicha, la distribución relativa de las observaciones pertenecientes a cada categoría y el porcentaje de muestras contenidas en dicho nodo. Las particiones se realizaron utilizando genes seleccionados por el modelo, generando reglas de decisión jerárquicas en la clasificación de las muestras.
+
+
+
+
+El árbol de decisión permitió clasificar las muestras a partir de un conjunto reducido de genes seleccionados automáticamente durante el proceso de entrenamiento (**Figura 5**). Entre las variables utilizadas en las particiones del árbol destacan genes como ATP5PD, PDE6D, CPSF2, EIF6, KLK3, RUFY1 y CDC42SE1, los cuales contribuyeron a discriminar progresivamente entre las distintas clases biológicas presentes en el conjunto de datos.
+
+El modelo alcanzó una exactitud global del 89,94% y un coeficiente Kappa de 0,868, lo que indica un elevado nivel de concordancia entre las clases observadas y las predichas. Estos resultados confirman que los perfiles de expresión génica contienen información suficiente para diferenciar adecuadamente la mayoría de las clases analizadas.
+
+A nivel individual, el rendimiento fue especialmente elevado para las clases HPB y CHC, que alcanzaron sensibilidades de 100% y 96,30%, respectivamente. Asimismo, las clases AGH y CFB mostraron sensibilidades superiores al 86%, mientras que la clase CGC presentó el valor más bajo (82,14%), indicando una mayor dificultad relativa para su identificación. No obstante, todas las clases mostraron valores de exactitud balanceada superiores al 90%, lo que evidencia un comportamiento consistente del modelo incluso en presencia de ligeras diferencias en el tamaño de los grupos.
+
+Estos resultados son coherentes con los patrones observados previamente mediante los métodos no supervisados. Tanto UMAP como las técnicas de agrupamiento revelaron la existencia de grupos bien diferenciados asociados a las distintas clases biológicas, sugiriendo la presencia de señales transcriptómicas que permiten discriminar. El árbol de decisión confirma esta observación desde una perspectiva supervisada, identificando además un conjunto concreto de genes capaces de establecer reglas de clasificación interpretables.
+
+Desde el punto de vista metodológico, el árbol de decisión constituye un modelo fácilmente interpretable y útil para identificar variables relevantes en el proceso de clasificación. Sin embargo, al basarse en una estructura jerárquica única, puede presentar una menor capacidad predictiva que métodos de ensamblado más complejos, como Random Forest o Gradient Boosting Machines (GBM), cuya comparación se realizará en los apartados siguientes.
+
+
+
+
+#### **3.2.2. Random Forest**
+
+Con el objetivo de mejorar la capacidad predictiva del árbol de decisión individual, se aplicó el algoritmo Random Forest mediante la función `train()` de la librería `caret`, utilizando el método `rf`. Este algoritmo pertenece a la familia de métodos de ensamblado (ensemble learning) y construye múltiples árboles de decisión sobre subconjuntos aleatorios de muestras y variables predictoras. La clasificación final se obtiene mediante votación entre todos los árboles generados, lo que permite reducir la variabilidad del modelo y mejorar su capacidad de generalización.
+
+Una vez entrenado el modelo, se realizaron predicciones sobre el conjunto de prueba y su rendimiento se evaluó mediante una matriz de confusión. Asimismo, se calcularon diferentes métricas de clasificación para valorar la capacidad del modelo para identificar correctamente las distintas clases biológicas presentes en el conjunto de datos.
+
+```   {r random forest, cache=TRUE}
+## entrenamiento del modelo Random Forest
+rf_model <- train(
+  clases ~ .,
+  data = trainData,
+  method = "rf",
+  trControl = dt_ctrl,
+  preProcess = c("center", "scale"),
+  tuneLength = 10,
+  importance = TRUE
+)
+
+# predicción de clases en el conjunto de prueba
+predictions_rf <- predict(
+  rf_model,
+  newdata = testData,
+  type = "raw"
+)
+
+# evaluación del rendimiento mediante matriz de confusión
+confusionMatrix(
+  predictions_rf,
+  testData$clases
+)
+
+# creación de objeto con datos de matriz de confusión
+cm_rf <- confusionMatrix(predictions_rf, testData$clases)
+```   
+
+
+El modelo Random Forest mostró un rendimiento muy elevado en la clasificación de las muestras biológicas. La matriz de confusión evidenció una correspondencia prácticamente perfecta entre las clases observadas y las clases predichas, registrándose únicamente un error de clasificación en una muestra perteneciente a la clase AGH, que fue asignada a la clase CFB.
+
+La exactitud global alcanzó un valor de 99,37%, mientras que el coeficiente Kappa fue de 0,9917, indicando una concordancia casi perfecta entre las clasificaciones observadas y las predichas. Estos resultados representan una mejora sustancial respecto al árbol de decisión individual, lo que confirma la capacidad de los métodos de ensamblado para reducir la variabilidad inherente a los árboles y aumentar la robustez de las predicciones.
+
+El análisis por clases mostró valores de sensibilidad iguales o superiores al 96,55% en todas las categorías. Las clases CFB, CGC, CHC y HPB alcanzaron una sensibilidad del 100%, mientras que la clase AGH presentó una sensibilidad ligeramente inferior (96,55%) debido al único error de clasificación observado. Del mismo modo, las especificidades fueron prácticamente perfectas para todas las clases, con valores comprendidos entre 98,99% y 100%.
+
+Estos resultados son coherentes con las evidencias observadas durante los análisis no supervisados. Tanto UMAP como los métodos de agrupamiento mostraron una clara separación entre las distintas clases biológicas, sugiriendo la existencia de patrones transcriptómicos altamente discriminantes. Random Forest fue capaz de explotar eficazmente esta información, generando un modelo con una capacidad predictiva excepcional sobre muestras no utilizadas durante el entrenamiento.
+
+Desde el punto de vista metodológico, el excelente rendimiento obtenido confirma la idoneidad de Random Forest para el análisis de datos de expresión génica de alta dimensionalidad. Su capacidad para combinar múltiples árboles de decisión, manejar un gran número de variables predictoras y reducir el riesgo de sobreajuste lo convierten en una alternativa especialmente robusta para problemas de clasificación multiclase como el abordado en este estudio.
+
+
+
+
+#### **3.2.3. Gradient Boosting Machine**
+
+Con el objetivo de evaluar un método de aprendizaje supervisado basado en ensamblado secuencial de modelos, se aplicó GBM mediante la función `train()` de la librería `caret`, utilizando el método `gbm`. Este algoritmo construye una secuencia de árboles de decisión donde cada nuevo árbol se ajusta para corregir los errores cometidos por los árboles previamente generados. De esta forma, el modelo combina múltiples clasificadores débiles para obtener una predicción final más precisa.
+
+Una vez entrenado el modelo, se realizaron predicciones sobre el conjunto de prueba y su rendimiento se evaluó mediante una matriz de confusión. El objetivo fue determinar la capacidad del algoritmo para clasificar correctamente las muestras en las distintas clases biológicas y comparar su desempeño con los resultados obtenidos mediante el árbol de decisión y Random Forest.
+
+```{r entrenamiento de GBM, cache=TRUE}
+# entrenamiento del modelo GBM
+gbm_model <- train(
+  clases ~ .,
+  data = trainData,
+  method = "gbm",
+  trControl = dt_ctrl,
+  preProcess = c("center", "scale"),
+  tuneLength = 10,
+  verbose = FALSE
+)
+
+# predicción de clases en el conjunto de prueba
+predictions_gbm <- predict(
+  gbm_model,
+  newdata = testData,
+  type = "raw"
+)
+
+# evaluación del rendimiento mediante matriz de confusión
+confusionMatrix(
+  predictions_gbm,
+  testData$clases
+)
+
+# creación de objeto con datos de matriz de confusión
+cm_gbm <- confusionMatrix(predictions_gbm, testData$clases)
+```
+
+El modelo GBM alcanzó una exactitud global de 98,74%, mientras que el coeficiente Kappa fue de 0,9833, indicando una concordancia casi perfecta entre las clases observadas y las predicciones generadas por el modelo. Estos resultados evidencian una capacidad predictiva muy elevada y sitúan a GBM entre los algoritmos con mejor rendimiento evaluados en este estudio.
+
+El análisis por clases mostró valores de sensibilidad iguales o superiores al 93,10% en todas las categorías. Las clases CFB, CGC, CHC y HPB alcanzaron sensibilidades del 100%, mientras que la clase AGH presentó una sensibilidad ligeramente inferior (93,10%) debido a la presencia de dos errores de clasificación. De forma similar, las especificidades fueron muy elevadas para todas las clases, con valores comprendidos entre 97,98% y 100%, reflejando una excelente capacidad del modelo para diferenciar cada categoría respecto al resto.
+
+La matriz de confusión muestra que únicamente se produjeron dos errores de clasificación, correspondientes a muestras de la clase AGH que fueron asignadas a las clases CFB y CHC. El resto de las muestras fueron clasificadas correctamente, lo que confirma la elevada capacidad discriminativa del modelo sobre el conjunto de prueba.
+
+Estos resultados son coherentes con los patrones observados durante los análisis no supervisados. Tanto PCA como UMAP evidenciaron una estructura de agrupamiento bien definida entre las distintas clases biológicas, mientras que los métodos de clustering recuperaron agrupamientos ampliamente compatibles con la clasificación original. GBM fue capaz de aprovechar eficazmente esta estructura presente en los perfiles de expresión génica, generando un modelo con un rendimiento predictivo competitivo.
+
+No obstante, al comparar estos resultados con los obtenidos mediante Random Forest, se observa que este último alcanzó valores ligeramente superiores tanto de exactitud como de concordancia global. Por ello, aunque GBM demostró una capacidad predictiva excepcional, Random Forest constituyó el modelo con mejor desempeño global dentro de los algoritmos supervisados evaluados en este estudio.
+
+
+
+
+#### **3.2.4. Comparación entre modelos supervisados**
+
+Con el fin de comparar el rendimiento de los modelos supervisados evaluados, se recopilaron las principales métricas de clasificación obtenidas a partir de las matrices de confusión calculadas sobre el conjunto de prueba. Estas métricas permitieron valorar de forma conjunta la capacidad predictiva de los distintos algoritmos implementados.
+
+Asimismo, se analizó la capacidad discriminativa del modelo con mejor desempeño mediante curvas ROC bajo un enfoque one-vs-rest. Finalmente, se examinó la importancia relativa de las variables predictoras identificadas por el modelo Random Forest, con el objetivo de determinar los genes que contribuyeron en mayor medida al proceso de clasificación.
+
+
+#### **3.2.4.1. Tabla resumen**
+
+Se construyó una tabla comparativa que resume las principales métricas de rendimiento calculadas sobre el conjunto de prueba. Para facilitar la presentación de los resultados y evitar redundancias, no se muestra el código utilizado para su elaboración ni presentación, dado que las matrices de confusión y los procedimientos de evaluación fueron descritos previamente para cada modelo.
+
+
+``` {r tabla resumen, echo=FALSE}
+
+# función para extraer métricas de cada modelo
+extraer_metricas <- function(cm, modelo) {
+  
+  tibble(
+    Modelo = modelo,
+      Exactitud = as.numeric(
+      cm$overall["Accuracy"]
+    ),
+      Sensibilidad = mean(
+      cm$byClass[, "Sensitivity"],
+      na.rm = TRUE
+    ),
+      Especificidad = mean(
+      cm$byClass[, "Specificity"],
+      na.rm = TRUE
+    ),
+      Kappa = as.numeric(
+      cm$overall["Kappa"]
+    )
+  )
+}
+
+# creación de la tabla resumen de modelos
+tabla_modelos <- bind_rows(
+  
+  extraer_metricas(
+    cm_dt,
+    "Árbol de decisión"
+  ),
+  extraer_metricas(
+    cm_rf,
+    "Random Forest"
+  ),
+  extraer_metricas(
+    cm_gbm,
+    "GBM"
+  )
+)
+
+# representación de la tabla resumen
+tabla_modelos %>%
+  
+  gt() %>%
+  
+  fmt_percent(
+    columns = c(
+      Exactitud,
+      Sensibilidad,
+      Especificidad
+    ),
+    decimals = 2
+  ) %>%
+  
+  fmt_number(
+    columns = Kappa,
+    decimals = 4
+  ) %>%
+  
+  cols_label(
+    Modelo = "Modelo",
+    Exactitud = "Exactitud",
+    Sensibilidad = "Sensibilidad media",
+    Especificidad = "Especificidad media",
+    Kappa = "Kappa"
+  ) %>%
+  
+  tab_header(
+    title = md(
+      "**Comparación del rendimiento de los modelos supervisados**"
+    )
+  ) %>%
+  
+  tab_source_note(
+    source_note = md(
+      "Las métricas fueron calculadas sobre el conjunto de prueba. La sensibilidad y especificidad corresponden al promedio entre clases."
+    )
+  )
+
+```
+
+**Tabla 1**. Comparación del rendimiento de los modelos supervisados evaluados sobre el conjunto de prueba. Se presentan la exactitud global, la sensibilidad media, la especificidad media y el coeficiente Kappa calculados para cada algoritmo de clasificación.
+
+
+#### **3.2.4.2. Curvas ROC**
+Como complemento a las métricas obtenidas mediante la matriz de confusión, se evaluó la capacidad discriminativa del modelo Random Forest mediante curvas ROC en un esquema one-vs-rest. Dado que el problema de clasificación incluye cinco clases biológicas, se calculó una curva ROC independiente para cada clase, comparando cada categoría frente al resto de las muestras. Este análisis permitió estimar el área bajo la curva (AUC) para cada clase y valorar la capacidad del modelo para distinguir cada grupo biológico de los demás.
+
+```{r ROC}
+# obtención de probabilidades predichas por el modelo Random Forest
+prob_rf <- predict(
+  rf_model,
+  newdata = testData,
+  type = "prob"
+)
+
+# identificación de las clases biológicas
+clases <- levels(testData$clases)
+
+# creación de lista para almacenar las curvas ROC
+roc_list <- list()
+
+# cálculo de curvas ROC one-vs-rest para cada clase
+for (clase in clases) {
+  
+  # creación de variable binaria: clase evaluada frente al resto
+  respuesta_binaria <- ifelse(
+    testData$clases == clase,
+    1,
+    0
+  )
+  
+  # cálculo de curva ROC para la clase evaluada
+  roc_list[[clase]] <- roc(
+    response = respuesta_binaria,
+    predictor = prob_rf[[clase]],
+    quiet = TRUE
+  )
+}
+
+# cálculo del AUC para cada clase
+auc_clases <- sapply(
+  roc_list,
+  auc
+)
+
+# visualización de valores AUC
+auc_clases
+
+# ver más decimales
+round(
+  as.numeric(auc_clases),
+  6
+)
+
+# representación gráfica de la primera curva ROC
+plot(
+  roc_list[[1]],
+  col = 1,
+  lwd = 2,
+  main = "Curvas ROC one-vs-rest para Random Forest"
+)
+
+# adición de las curvas ROC restantes
+for (i in 2:length(roc_list)) {
+  
+  plot(
+    roc_list[[i]],
+    col = i,
+    lwd = 2,
+    add = TRUE
+  )
+}
+
+# adición de línea diagonal de referencia
+abline(
+  a = 0,
+  b = 1,
+  lty = 2,
+  col = "gray"
+)
+
+# leyenda con clases y valores AUC
+legend(
+  "bottomright",
+  legend = paste0(
+    clases,
+    " (AUC = ",
+    round(as.numeric(auc_clases), 6),
+    ")"
+  ),
+  col = 1:length(clases),
+  lwd = 2,
+  cex = 0.8
+)
+```
+
+**Figura 6.** Curvas ROC *one-vs-rest* obtenidas para el modelo Random Forest. Cada curva representa la capacidad del modelo para diferenciar una clase biológica frente al resto de las muestras. Los valores de AUC indican el rendimiento discriminativo del modelo para cada clase.
+
+
+
+
+Las curvas ROC obtenidas evidenciaron una capacidad discriminativa muy elevada para todas las clases biológicas analizadas. Los valores de AUC fueron iguales o muy próximos a 1 en los cinco escenarios *one-vs-rest*, indicando que el modelo Random Forest distinguió eficazmente cada categoría respecto al resto de las muestras.
+
+La superposición observada entre las curvas se debe a la similitud de los valores de AUC alcanzados por todas las clases. Este comportamiento refleja un rendimiento homogéneo del modelo y sugiere que la capacidad de clasificación no estuvo concentrada en una categoría específica, sino que se mantuvo consistentemente alta para todos los grupos biológicos evaluados.
+
+Estos resultados complementan las métricas obtenidas mediante la matriz de confusión y la tabla comparativa de modelos, confirmando que Random Forest fue el algoritmo con mejor desempeño global. En conjunto, la elevada capacidad discriminativa observada respalda la existencia de patrones de expresión génica suficientemente diferenciados para permitir una clasificación precisa de las muestras analizadas.
+
+
+
+#### **3.2.4.3. Importancia de variables en Random Forest**
+
+Con el objetivo de identificar las variables que contribuyeron en mayor medida al proceso de clasificación, se examinó la importancia relativa de los predictores calculada por el modelo Random Forest mediante la función `varImp()`. Esta medida estima la contribución de cada gen al rendimiento predictivo del modelo, permitiendo identificar aquellos cuya expresión génica resultó más informativa para diferenciar las distintas clases biológicas. Para facilitar la interpretación de los resultados, se representaron los veinte genes con mayor importancia relativa para cada categoría analizada.
+
+``` {r TOP 20 random forest, fig.width=14, fig.height=9, dpi=300}
+# importancia relativa de las variables
+importancia <- varImp(
+  rf_model,
+  scale = TRUE
+)
+
+# convertir a dataframe
+imp_df <- importancia$importance
+
+# guardar nombres de genes
+imp_df$Gen <- rownames(imp_df)
+
+# formato largo
+imp_long <- pivot_longer(
+  imp_df,
+  cols = -Gen,
+  names_to = "Clase",
+  values_to = "Importancia"
+)
+
+# seleccionar Top 20 por clase
+imp_top20 <- imp_long %>%
+  group_by(Clase) %>%
+  slice_max(
+    Importancia,
+    n = 20,
+    with_ties = FALSE
+  ) %>%
+  ungroup()
+
+# visualización ordenada dentro de cada clase
+ggplot(
+  imp_top20,
+  aes(
+    x = reorder_within(Gen, Importancia, Clase),
+    y = Importancia
+  )
+) +
+  geom_point(size = 3) +
+  coord_flip() +
+  facet_wrap(
+    ~Clase,
+    scales = "free_y"
+  ) +
+  scale_x_reordered() +
+  labs(
+    x = "Gen",
+    y = "Importancia"
+  ) +
+  theme_classic()
+```
+
+**Figura 7.** Veinte genes con mayor importancia relativa de acuerdo con el modelo Random Forest. La importancia se calculó a partir de la contribución de cada variable al rendimiento predictivo del modelo durante el proceso de clasificación. Los genes se presentan ordenados de forma decreciente según su importancia dentro de cada clase biológica.
+
+
+
+
+Los resultados muestran que la clasificación de las muestras estuvo sustentada por un conjunto relativamente reducido de genes. Aunque las variables más importantes variaron entre clases, varios genes aparecieron de forma recurrente entre los predictores con mayor relevancia, incluyendo ATP5PD, PDE6D, EIF6, RAP1GAP, CPSF2, CDK6, ZMAT2 y RAB3D, lo que sugiere su participación en el proceso de diferenciación entre las categorías biológicas analizadas.
+
+Asimismo, algunos genes presentaron una importancia particularmente elevada en clases específicas. ATP5PD destacó en AGH, PDE6D mostró una relevancia especialmente alta en CFB y CGC, mientras que RUFY1 fue uno de los predictores más importantes para HPB. Estos patrones sugieren la coexistencia de variables informativas compartidas entre varias clases y otras con una relevancia más específica para determinadas categorías biológicas.
+
+La importancia relativa identificada por Random Forest es consistente con el elevado rendimiento predictivo alcanzado por este modelo. La combinación de múltiples predictores permitió construir un clasificador con una exactitud superior al 99%, manteniendo simultáneamente altos niveles de sensibilidad y especificidad. En conjunto, los resultados indican que una fracción relativamente pequeña de los genes analizados concentra gran parte de la información necesaria para diferenciar las clases biológicas consideradas en este estudio.
+
+
+
+---
+
+
+
+# **4. Discusión**
+
+### **4.1. Procesamiento de los datos**
+
+El conjunto de datos analizado no presentó valores perdidos, por lo que no fue necesario aplicar procedimientos de imputación. Esta situación simplificó la fase de preprocesamiento y permitió trabajar directamente con las mediciones originales de expresión génica sin introducir estimaciones adicionales que pudieran alterar la variabilidad biológica presente en los datos. En consecuencia, la información utilizada durante el análisis correspondió íntegramente a los valores observados experimentalmente.
+
+No obstante, sí se llevaron a cabo otras etapas de procesamiento con el objetivo de mejorar la calidad de los análisis posteriores. En primer lugar, se identificaron y eliminaron tres genes con varianza nula (MIER3, ZCCHC12 y RPL22L1), ya que presentaban valores constantes en todas las muestras y, por tanto, no aportaban información útil para la diferenciación entre clases biológicas. La eliminación de variables sin variabilidad es una práctica habitual en análisis transcriptómicos, dado que estas características no contribuyen a la clasificación ni a la detección de patrones de agrupamiento.
+
+Posteriormente, para los análisis no supervisados se aplicó una estandarización de las variables mediante centrado y escalado. Este procedimiento permitió que todos los genes contribuyeran de forma comparable al cálculo de distancias y a los algoritmos de reducción de dimensionalidad, evitando que variables con rangos de expresión más elevados dominaran los resultados. En los modelos supervisados, el centrado y escalado también se incorporaron dentro del flujo de entrenamiento mediante las herramientas de preprocesamiento de la librería `caret`, garantizando un tratamiento homogéneo de los datos utilizados por los distintos algoritmos evaluados.
+
+En conjunto, las etapas de preprocesamiento aplicadas fueron relativamente conservadoras y estuvieron orientadas principalmente a eliminar información redundante y asegurar la comparabilidad entre variables, preservando al mismo tiempo la mayor cantidad posible de información biológica contenida en el conjunto de datos original.
+
+
+### **4.2. Evaluación de los métodos de aprendizaje automático**
+
+
+#### **4.2.1. Métodos no supervisados**
+
+Los métodos no supervisados se emplearon con el objetivo de explorar la estructura interna de los datos sin utilizar información previa sobre las clases biológicas de las muestras. Dado que el conjunto de datos contenía varios centenares de variables correspondientes a niveles de expresión génica, resultaba necesario utilizar técnicas capaces de reducir la dimensionalidad y facilitar la identificación de patrones de agrupamiento.
+
+Para ello se seleccionaron dos enfoques complementarios de reducción de dimensionalidad: PCA y UMAP. El PCA constituye una de las técnicas más utilizadas para el análisis exploratorio de datos transcriptómicos debido a su simplicidad, rapidez computacional e interpretabilidad. Al proyectar los datos sobre combinaciones lineales de las variables originales, PCA permite identificar las principales fuentes de variación presentes en el conjunto de datos y proporciona una primera aproximación a la existencia de posibles agrupamientos. Sin embargo, al tratarse de un método lineal, puede presentar limitaciones para capturar relaciones complejas o estructuras no lineales presentes en datos biológicos de alta dimensionalidad.
+
+Por este motivo, el análisis se complementó mediante UMAP, una técnica no lineal diseñada para preservar tanto la estructura local como parte de la estructura global de los datos. En comparación con PCA, UMAP suele generar representaciones más informativas cuando existen patrones complejos de separación entre grupos. Esta característica resultó especialmente relevante en el presente estudio, donde la proyección UMAP mostró una separación mucho más clara entre las distintas clases biológicas que la observada mediante PCA (**Figuras 1 y 2**). No obstante, una de las principales limitaciones de UMAP es su dependencia de parámetros definidos por el usuario, como el número de vecinos o la distancia mínima, lo que puede influir en la representación final obtenida.
+
+Una vez explorada la estructura de los datos, se aplicaron dos estrategias de agrupamiento complementarias: K-Means y clustering jerárquico mediante el método de Ward. K-Means fue seleccionado por su sencillez conceptual, amplia utilización en análisis exploratorios y capacidad para generar particiones compactas cuando el número esperado de grupos es conocido previamente. En este caso, se fijó un número de cinco clústeres para facilitar la comparación con las cinco categorías biológicas presentes en el conjunto de datos. Sin embargo, este método requiere especificar el número de grupos de antemano y puede verse influido por la inicialización de los centroides, lo que constituye una de sus principales limitaciones.
+
+Por otra parte, el clustering jerárquico mediante el criterio de Ward permitió analizar las relaciones entre muestras desde una perspectiva diferente. A diferencia de K-Means, este método no parte de una partición inicial, sino que construye una estructura jerárquica completa representada mediante un dendrograma. La utilización del método Ward.D2 favorece la formación de grupos relativamente homogéneos al minimizar la variabilidad interna de los clústeres durante el proceso de agrupamiento. Entre sus ventajas destaca la posibilidad de explorar agrupamientos a distintos niveles de resolución, mientras que su principal limitación radica en la sensibilidad a la métrica de distancia utilizada y en el mayor coste computacional asociado al análisis de conjuntos de datos de gran tamaño.
+
+Los resultados obtenidos mediante ambas estrategias de agrupamiento mostraron una elevada concordancia con las clases biológicas conocidas, tal como puede apreciarse en las representaciones obtenidas mediante K-Means y clustering jerárquico (**Figuras 3 y 4**), lo que sugiere la existencia de patrones transcriptómicos bien definidos en los datos analizados. No obstante, no puede afirmarse con certeza que los clústeres obtenidos representen la mejor partición posible de las muestras. Tanto K-Means como el clustering jerárquico dependen de decisiones metodológicas específicas, incluyendo la elección de la métrica de distancia, el método de agrupamiento, los parámetros utilizados y el número de grupos considerado. La aplicación de otros algoritmos o configuraciones alternativas podría producir particiones ligeramente diferentes. Por este motivo, los clústeres obtenidos deben interpretarse como soluciones plausibles y biológicamente coherentes, más que como una representación única e inequívoca de la estructura subyacente de los datos.
+
+
+#### **4.2.2. Métodos supervisados**
+
+Para la fase de clasificación supervisada se seleccionaron tres algoritmos basados en árboles de decisión: árbol de decisión simple, Random Forest y GBM. La elección de estos métodos se fundamentó en su amplia utilización en problemas de clasificación biológica, su capacidad para manejar conjuntos de datos con un elevado número de variables predictoras y su robustez frente a relaciones complejas entre las características analizadas.
+
+El árbol de decisión se incluyó como modelo de referencia debido a su elevada interpretabilidad. La estructura jerárquica generada permite comprender de forma intuitiva las reglas utilizadas durante la clasificación y facilita la identificación de variables relevantes para la toma de decisiones (**Figura 5**). Sin embargo, este tipo de modelos suele presentar una capacidad predictiva más limitada, ya que pequeñas variaciones en los datos pueden modificar significativamente la estructura del árbol resultante. Esta característica explica, al menos en parte, el menor rendimiento observado en comparación con los métodos de ensamblado.
+
+Por su parte, Random Forest y GBM fueron seleccionados por su capacidad para combinar múltiples árboles de decisión y mejorar el rendimiento predictivo. Random Forest construye numerosos árboles utilizando subconjuntos aleatorios de muestras y variables, reduciendo la varianza del modelo y mejorando su capacidad de generalización. GBM sigue una estrategia diferente, basada en la construcción secuencial de árboles que corrigen progresivamente los errores cometidos por los modelos anteriores. Ambos enfoques suelen proporcionar resultados superiores a los obtenidos mediante árboles individuales, especialmente en conjuntos de datos complejos y de alta dimensionalidad.
+
+Los resultados confirmaron esta tendencia. Aunque el árbol de decisión alcanzó una exactitud cercana al 90%, los métodos de ensamblado mostraron un rendimiento notablemente superior. GBM alcanzó una exactitud del 98,74% y un coeficiente Kappa de 0,9833, mientras que Random Forest obtuvo los mejores resultados globales, con una exactitud del 99,37%, una sensibilidad media del 99,31%, una especificidad media del 99,80% y un coeficiente Kappa de 0,9917 (**Tabla 1**). Asimismo, las curvas ROC mostraron valores de AUC próximos a 1 para todas las clases biológicas (**Figura 6**), reforzando la evidencia de una capacidad discriminativa excepcional. En consecuencia, Random Forest puede considerarse el modelo con mejor desempeño global entre los algoritmos evaluados.
+
+Durante el diseño del análisis se consideró la posibilidad de aplicar técnicas de reducción de dimensionalidad antes del entrenamiento de los modelos supervisados. Sin embargo, se decidió no incorporar este paso. Tras la eliminación de los genes constantes, el conjunto de datos conservó 497 variables predictoras, una dimensionalidad que resulta manejable para algoritmos basados en árboles. Además, tanto Random Forest como GBM incorporan mecanismos internos de selección de variables y son capaces de identificar automáticamente aquellas características más relevantes para la clasificación. La aplicación de técnicas como PCA podría haber reducido la dimensionalidad, pero también habría dificultado la interpretación biológica de los resultados al sustituir los genes originales por componentes sintéticos de más difícil interpretación.
+
+La relevancia de esta decisión se refleja además en el análisis de importancia de variables realizado para Random Forest (**Figura 7**), donde se observó que un subconjunto relativamente reducido de genes concentró gran parte de la capacidad predictiva del modelo. Este resultado sugiere que los algoritmos fueron capaces de identificar automáticamente las variables más informativas sin necesidad de aplicar una reducción de dimensionalidad previa.
+
+En conjunto, los resultados sugieren que la información contenida en los perfiles de expresión génica fue suficiente para diferenciar con gran precisión las distintas clases biológicas consideradas en el estudio. La elevada concordancia observada entre los modelos supervisados más complejos (**Figuras 5-7 y Tabla 1**) y los patrones identificados previamente mediante los análisis no supervisados (**Figuras 1–4**) respalda la existencia de una señal biológica robusta capaz de sustentar procesos de clasificación altamente precisos.
+
+
+### **4.3. Integración e interpretación global de los resultados**
+
+Considerados en conjunto, los resultados de análisis no supervisados y supervisados muestran una elevada coherencia interna y apuntan a la existencia de diferencias transcriptómicas bien definidas entre las clases biológicas analizadas. Esta consistencia resulta especialmente relevante, ya que los distintos métodos empleados parten de supuestos metodológicos diferentes y exploran la estructura de los datos desde perspectivas complementarias.
+
+Los análisis de reducción de dimensionalidad proporcionaron una primera evidencia de esta estructura subyacente. Aunque PCA permitió identificar una tendencia al agrupamiento de las muestras, la separación observada entre las distintas categorías biológicas fue más evidente mediante UMAP (**Figuras 1 y 2**). Este resultado sugiere que parte de la variabilidad relevante para la diferenciación entre clases se encuentra distribuida en patrones no lineales, que pueden ser capturados de forma más eficiente mediante técnicas diseñadas para preservar relaciones complejas en espacios de alta dimensionalidad.
+
+Los resultados de clustering reforzaron esta interpretación. Tanto K-Means como el clustering jerárquico recuperaron agrupamientos ampliamente compatibles con las clases biológicas originales (**Figuras 3 y 4**), indicando que las diferencias observadas no dependen exclusivamente de la información de clasificación proporcionada al modelo, sino que están presentes en la propia estructura de los datos. La capacidad de los métodos no supervisados para identificar agrupamientos coherentes constituye una evidencia adicional de que los perfiles de expresión génica contienen información biológicamente relevante para distinguir entre las distintas categorías consideradas.
+
+Esta misma tendencia se observó en los algoritmos supervisados. Aunque el árbol de decisión mostró un rendimiento adecuado (**Figura 5**), los métodos de ensamblado alcanzaron niveles de precisión notablemente superiores. En particular, Random Forest obtuvo los mejores resultados globales, seguido por GBM, alcanzando valores de exactitud, sensibilidad, especificidad y concordancia cercanos al máximo teórico (**Tabla 1**). La elevada capacidad discriminativa observada mediante las curvas ROC (**Figura 6**) confirmó que el modelo fue capaz de diferenciar eficazmente cada una de las clases biológicas frente al resto de las muestras.
+
+Finalmente, el análisis de importancia de variables mostró que una fracción relativamente pequeña de los genes concentró gran parte de la capacidad predictiva del modelo (**Figura 7**). La aparición recurrente de determinados genes entre los predictores más relevantes sugiere la existencia de señales transcriptómicas específicas asociadas a las distintas categorías biológicas, aunque la validación funcional de estos posibles marcadores requeriría estudios adicionales.
+
+En conjunto, los resultados de los distintos enfoques analíticos convergen hacia una misma conclusión: las clases biológicas incluidas en el estudio presentan perfiles de expresión génica suficientemente diferenciados como para ser identificados de manera consistente mediante técnicas de reducción de dimensionalidad, agrupamiento y clasificación supervisada. La concordancia observada entre todos los métodos evaluados proporciona un elevado grado de confianza en la robustez de los patrones detectados y respalda la utilidad de los datos transcriptómicos para la caracterización y diferenciación de las muestras analizadas.
+
+
+### **4.4. Consideraciones sobre arquitecturas de deep learning para datos de expresión génica**
+
+Aunque el presente estudio se centró en la aplicación de métodos clásicos de aprendizaje automático, resulta pertinente considerar qué arquitecturas de deep learning podrían emplearse en futuros análisis de datos de expresión génica similares a los evaluados. Dado que los perfiles transcriptómicos constituyen conjuntos de datos de alta dimensionalidad capaces de capturar patrones biológicos complejos, diferentes arquitecturas de redes neuronales podrían aprovechar esta información de maneras distintas. Entre las alternativas más utilizadas destacan las redes de perceptrones multicapa (MLP), las redes convolucionales (CNN), las redes recurrentes (RNN) y las redes de grafos (GNN), cada una con ventajas y limitaciones que condicionan su aplicabilidad en este contexto.
+
+Las redes de perceptrones multicapa (*Multilayer Perceptrons*, MLP) constituyen la alternativa más sencilla y directa para procesar datos de expresión génica. Estas arquitecturas reciben como entrada un vector de características, por lo que pueden trabajar directamente con los niveles de expresión de los genes sin necesidad de transformaciones adicionales. Entre sus principales ventajas destacan su flexibilidad, facilidad de implementación y capacidad para modelar relaciones no lineales entre variables. Sin embargo, suelen requerir un número considerable de muestras para evitar problemas de sobreajuste y presentan una capacidad limitada para incorporar información estructural sobre las relaciones biológicas existentes entre genes.
+
+Las redes convolucionales (CNN) han demostrado un rendimiento sobresaliente en problemas relacionados con imágenes debido a su capacidad para detectar patrones espaciales locales. No obstante, los datos de expresión génica no poseen de forma natural una organización espacial comparable a la de una imagen. Aunque es posible adaptar estos datos para ser procesados mediante CNN, por ejemplo organizando genes según criterios biológicos específicos, esta representación suele resultar artificial y puede dificultar la interpretación de los resultados. Por este motivo, las CNN no suelen considerarse la opción más natural para este tipo de datos.
+
+Las redes recurrentes (RNN) están diseñadas para modelar dependencias secuenciales y temporales, siendo especialmente útiles en problemas relacionados con series temporales, lenguaje natural o señales biológicas adquiridas a lo largo del tiempo. Sin embargo, los perfiles de expresión génica analizados en este estudio corresponden a mediciones estáticas realizadas sobre distintos genes y no presentan una estructura temporal inherente. En consecuencia, las ventajas propias de las redes recurrentes difícilmente podrían aprovecharse en este contexto.
+
+Por último, las redes de grafos (*Graph Neural Networks*, GNN) constituyen una alternativa especialmente interesante cuando se dispone de información adicional sobre las interacciones biológicas entre genes, proteínas o rutas metabólicas. Estas arquitecturas permiten representar explícitamente las relaciones existentes entre los distintos elementos del sistema biológico y pueden capturar patrones complejos de conectividad imposibles de modelar mediante enfoques tradicionales. Su principal limitación radica en la necesidad de disponer de redes biológicas fiables y suficientemente completas para construir la estructura del grafo.
+
+Considerando exclusivamente los datos utilizados en este estudio, compuestos por perfiles de expresión génica representados como vectores de variables independientes, una MLP constituiría la alternativa más adecuada entre las opciones propuestas. Este tipo de arquitectura puede procesar directamente los niveles de expresión de los genes y aprender relaciones complejas entre ellos sin requerir información adicional sobre estructura espacial o temporal. Sin embargo, si además se dispusiera de información biológica sobre interacciones génicas o redes de regulación molecular, las redes de grafos podrían representar una alternativa potencialmente más potente al incorporar explícitamente dichas relaciones durante el proceso de aprendizaje.
+
+Por tanto, la elección de la arquitectura más apropiada depende no solo de los valores de expresión génica disponibles, sino también del nivel de conocimiento biológico adicional que pueda incorporarse al modelo. En ausencia de esta información complementaria, MLP constituye la opción más adecuada para el problema analizado, mientras que las redes de grafos representarían la alternativa más prometedora en escenarios donde se disponga de información relacional entre genes.
+
+
+---
+
+
+
+### **5. Conclusiones**
+
+
+El presente estudio permitió analizar un conjunto de datos de expresión génica correspondiente a cinco categorías biológicas mediante una combinación de técnicas de aprendizaje automático no supervisado y supervisado. Tras una etapa de preprocesamiento relativamente conservadora, orientada principalmente a eliminar variables sin capacidad discriminativa y garantizar la comparabilidad entre características, se obtuvo un conjunto de datos adecuado para la exploración de patrones transcriptómicos y la construcción de modelos predictivos.
+
+Los análisis no supervisados revelaron la existencia de una estructura biológica claramente definida en los datos. Tanto las técnicas de reducción de dimensionalidad como los métodos de agrupamiento fueron capaces de identificar patrones consistentes de separación entre las distintas clases, sugiriendo que las diferencias observadas no dependían exclusivamente de la información de clasificación disponible, sino que estaban presentes en los propios perfiles de expresión génica. La concordancia observada entre PCA, UMAP, K-Means y clustering jerárquico proporcionó una primera evidencia de la robustez de estas señales biológicas.
+
+Los resultados del aprendizaje supervisado reforzaron esta interpretación. Los tres algoritmos evaluados alcanzaron un elevado rendimiento predictivo, destacando especialmente los métodos de ensamblado. Random Forest se consolidó como el modelo con mejor desempeño global, alcanzando valores de exactitud, sensibilidad, especificidad y concordancia próximos al máximo teórico. La elevada capacidad discriminativa observada mediante las curvas ROC y la identificación de un conjunto reducido de genes altamente informativos sugieren que gran parte de la información necesaria para la clasificación de las muestras se encuentra concentrada en un número relativamente limitado de variables biológicamente relevantes.
+
+La coherencia observada entre los análisis exploratorios, los métodos de agrupamiento y los algoritmos de clasificación constituye uno de los hallazgos más relevantes del estudio. La convergencia de resultados obtenidos mediante enfoques metodológicos diferentes proporciona un elevado grado de confianza en la existencia de patrones transcriptómicos robustos capaces de diferenciar de manera consistente las clases biológicas.
+
+Finalmente, desde una perspectiva prospectiva, los resultados sugieren que los datos de expresión génica analizados constituyen una base adecuada para la aplicación de técnicas más avanzadas de aprendizaje profundo. Aunque MLP representarían la alternativa más natural para trabajar con perfiles transcriptómicos estructurados como vectores de características, la incorporación futura de información sobre interacciones génicas podría favorecer el uso de arquitecturas GNN, capaces de modelar explícitamente las relaciones biológicas entre genes y rutas moleculares.
+
+En conjunto, este trabajo demuestra que los perfiles de expresión génica contienen una señal biológica suficientemente informativa para caracterizar, agrupar y clasificar muestras con un alto grado de precisión, poniendo de manifiesto el enorme potencial de las herramientas de aprendizaje automático para transformar grandes volúmenes de datos transcriptómicos en conocimiento biológico interpretable y clínicamente relevante.
+
+---
+
+
+
+#### **6. Referencias**
+
+Raychaudhuri S, Stuart JM, Altman RB. Principal components analysis to summarize microarray experiments: application to sporulation time series. Bioinformatics. 2000;16(9):780-6.
+
+Ma S, Dai Y. Principal component analysis based methods in bioinformatics studies. Brief Bioinform. 2011;12(6):714-22.
+
+Becht E, McInnes L, Healy J, Dutertre CA, Kwok IWH, Ng LG, et al. Dimensionality reduction for visualizing single-cell data using UMAP. Nat Biotechnol. 2019;37(1):38-44.
+
+Yeung KY, Ruzzo WL. Principal component analysis for clustering gene expression data. Bioinformatics. 2001;17(9):763-74.
+
+Sherlock G. Analysis of large-scale gene expression data. Brief Bioinform. 2001;2(4):350-62.
+
+Chen X, Ishwaran H. Random forests for genomic data analysis. Genomics. 2012;99(6):323-9.
+
+Chen X, Ishwaran H. The use of classification trees for bioinformatics. Wiley Interdiscip Rev Data Min Knowl Discov. 2012;2(1):55-63.
+
+Díaz-Uriarte R, Alvarez de Andrés S. Gene selection and classification of microarray data using random forest. BMC Bioinformatics. 2006;7:3.
+
+Ram R, Najafi A, Shakeri MT. Classification and biomarker genes selection for cancer gene expression data using random forest. Iran J Pathol. 2017;12(4):339-47.
+
+Alharbi A, Alsubki S, Alotaibi A, Alghamdi A, Alshammari A. Machine learning methods for cancer classification using gene expression data: a review. Diagnostics (Basel). 2023;13(4):728.
+
+Piccolo SR, Frampton MB. Tools and techniques for computational reproducibility. Gigascience. 2016;5(1):30.
+
+Jovic D, Liang X, Zeng H, Lin L, Xu F, Luo Y. Single-cell RNA sequencing technologies and applications: a brief overview. Clin Transl Med. 2022;12(3):e694.
+
+
+---
+
+
+
+#### **7. Anexos**
+
+**Anexo 1. Varianza explicada por las componentes principales**
+
+Con el fin de complementar la interpretación del Análisis de Componentes Principales (PCA), se evaluó la proporción de varianza explicada por cada componente principal y la varianza acumulada del modelo. Para ello, se calculó la contribución individual de las componentes principales a la variabilidad total del conjunto de datos y se representó gráficamente mediante un gráfico de sedimentación (scree plot). Asimismo, se determinó el número de componentes necesarias para explicar al menos el 80% de la varianza total observada.
+
+```{r Anexo 1 PCA, echo=FALSE, fig.width=5, fig.height=5, fig.align="center"}
+# varianza explicada
+varianzas <- pca.results$sdev^2
+varianza_explicada <- varianzas / sum(varianzas)
+varianza_acumulada <- cumsum(varianza_explicada)
+varianza_acumulada[1:20]
+
+# dataframe
+pca_var <- data.frame(
+  PC = 1:length(varianza_explicada),
+  Varianza = varianza_explicada * 100
+)
+
+# regla del codo
+ggplot(pca_var[1:20, ], aes(x = PC, y = Varianza)) +
+  geom_line() +
+  geom_point() +
+  labs(
+    title = "Scree plot para PCA",
+    x = "Componente principal",
+    y = "Varianza explicada (%)"
+  ) +
+  theme_classic()
+
+which(varianza_acumulada >= 0.80)[1]
+```
+
+**Figura A1.** Gráfico de sedimentación (scree plot) que muestra la proporción de varianza explicada por las veinte primeras componentes principales obtenidas mediante PCA.
+
+
+
+El gráfico de sedimentación muestra una disminución progresiva de la varianza explicada por las componentes principales, observándose una reducción pronunciada durante las primeras siete componentes, y una estabilización gradual a partir de la octava componente principal. Este comportamiento sugiere que una parte importante de la información presente en el conjunto de datos se concentra en las primeras dimensiones obtenidas mediante PCA.
+
+No obstante, la disminución gradual de la curva indica que la variabilidad del conjunto de datos no se encuentra concentrada en un número reducido de componentes, sino distribuida entre múltiples dimensiones. Este resultado es consistente con la naturaleza de los datos de expresión génica, donde numerosos genes contribuyen simultáneamente a la variabilidad observada entre muestras.
+
+El análisis de la varianza acumulada mostró que fueron necesarias 83 componentes principales para explicar el 80% de la variabilidad total del conjunto de datos. Este resultado confirma la elevada complejidad y dimensionalidad de la información transcriptómica analizada y justifica el uso de técnicas de reducción de dimensionalidad con fines principalmente exploratorios y de visualización.
+
+
+---
+
+
+
+**Anexo 2. Evaluación de la estabilidad de UMAP**
+
+Con el fin de complementar la interpretación de los resultados UMAP, se evaluó la estabilidad de las representaciones generadas frente a diferentes configuraciones del parámetro `n_neighbors`. Este parámetro controla el número de vecinos considerados durante la construcción de la estructura local de los datos y puede influir en la disposición de las muestras en el espacio reducido.
+
+Para ello, se aplicó UMAP utilizando tres valores distintos de `n_neighbors (10, 30 y 50)`, manteniendo constantes el resto de los parámetros del algoritmo. Posteriormente, se representaron gráficamente las proyecciones obtenidas con el objetivo de analizar la consistencia de los agrupamientos observados y determinar si la separación entre clases dependía de una configuración específica del modelo.
+
+```{r Anexo 2 UMAP, echo=FALSE, fig.width=5, fig.height=5, fig.align="center"}
+# UMAP n_neighbors10
+umap.results <- uwot::umap(
+  datos_escalados,
+  n_neighbors = 10,
+  n_components = 2,
+  min_dist = 0.1
+)
+
+# coordenadas en el espacio reducido
+umap.df <- data.frame(
+  UMAP1 = umap.results[, 1],
+  UMAP2 = umap.results[, 2]
+)
+
+# añadir clase biológica
+umap.df$clases <- df$clases
+
+# representación gráfica de la proyección UMAP
+umap_graph10 <- ggplot(umap.df, aes(x = UMAP1, y = UMAP2, color = clases)) +
+  geom_point(size = 3) +
+  labs(
+    title = "Proyección de muestras mediante UMAP\n(n_neighbors = 10)",
+    x = "UMAP 1",
+    y = "UMAP 2",
+    color = "Clase"
+  ) +
+  theme_classic() +
+  theme(
+    panel.grid.major = element_line(color = "gray90"),
+    panel.grid.minor = element_blank(),
+    panel.background = element_rect(fill = "gray95"),
+    plot.title = element_text(hjust = 0.5)
+  )
+
+plot(umap_graph10)
+
+# UMAP n_neighbors50
+umap.results <- uwot::umap(
+  datos_escalados,
+  n_neighbors = 50,
+  n_components = 2,
+  min_dist = 0.1
+)
+
+# coordenadas en el espacio reducido
+umap.df <- data.frame(
+  UMAP1 = umap.results[, 1],
+  UMAP2 = umap.results[, 2]
+)
+
+# añadir clase biológica
+umap.df$clases <- df$clases
+
+# representación gráfica de la proyección UMAP
+umap_graph50 <- ggplot(umap.df, aes(x = UMAP1, y = UMAP2, color = clases)) +
+  geom_point(size = 3) +
+  labs(
+    title = "Proyección de muestras mediante UMAP\n(n_neighbors = 50)",
+    x = "UMAP 1",
+    y = "UMAP 2",
+    color = "Clase"
+  ) +
+  theme_classic() +
+  theme(
+    panel.grid.major = element_line(color = "gray90"),
+    panel.grid.minor = element_blank(),
+    panel.background = element_rect(fill = "gray95"),
+    plot.title = element_text(hjust = 0.5)
+  )
+
+plot(umap_graph50)
+```
+
+**Figura A2.** Proyecciones de las muestras mediante UMAP obtenidas con diferentes valores del parámetro `n_neighbors` (10 y 50). Cada punto representa una muestra de expresión génica y el color indica su clase biológica. Las representaciones se utilizaron para evaluar la estabilidad de los agrupamientos observados frente a cambios en la configuración del algoritmo.
+
+La comparación de las representaciones obtenidas mostró que la estructura general del conjunto de datos se mantuvo estable para los diferentes valores de `n_neighbors` evaluados. En todos los casos se observaron agrupamientos claramente asociados a las cinco clases biológicas presentes en el conjunto de datos, con un grado mínimo de solapamiento entre grupos.
+
+Aunque la disposición espacial de los agrupamientos varió entre las distintas configuraciones, la separación entre clases se conservó de forma consistente. Este comportamiento sugiere que los patrones identificados mediante UMAP reflejan una estructura subyacente de los datos y no son consecuencia de una elección particular del parámetro analizado.
+
+En conjunto, estos resultados respaldan la representación obtenida mediante UMAP y refuerzan la evidencia de que los perfiles de expresión génica contienen información suficiente para diferenciar las clases biológicas consideradas en este estudio.
